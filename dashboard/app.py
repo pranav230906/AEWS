@@ -1,5 +1,5 @@
 # =========================================================
-# Windows-safe import setup (VERY IMPORTANT)
+# Windows-safe import setup
 # =========================================================
 import sys
 import os
@@ -35,7 +35,7 @@ st.set_page_config(
 
 st.title("🚨 AEWS – Aadhaar Early Warning System")
 st.caption(
-    "Early warning, escalation detection, policy intelligence & decision simulation"
+    "Early warning, escalation detection, policy intelligence, and decision simulation for Aadhaar services"
 )
 
 # =========================================================
@@ -51,20 +51,14 @@ def load_data():
 isi_df, lifecycle_df, pred_df = load_data()
 
 # =========================================================
-# Clean State Names
+# Cleaning & Processing
 # =========================================================
 isi_df = clean_state_names(isi_df)
 lifecycle_df = clean_state_names(lifecycle_df)
 pred_df = clean_state_names(pred_df)
 
-# =========================================================
-# Escalation Detection
-# =========================================================
 pred_df = detect_risk_escalation(pred_df)
 
-# =========================================================
-# Latest Month Filter
-# =========================================================
 latest_month = pred_df["year_month"].max()
 alerts_df = pred_df[pred_df["year_month"] == latest_month].copy()
 
@@ -72,9 +66,9 @@ risk_map = {0: "🟢 Low", 1: "🟡 Medium", 2: "🔴 High"}
 alerts_df["Risk Level"] = alerts_df["predicted_risk_next"].map(risk_map)
 
 # =========================================================
-# Recommendation Summary (table-level)
+# Recommended Action
 # =========================================================
-def recommendation_summary(row):
+def compute_recommended_action(row):
     subset = isi_df[
         (isi_df["state"] == row["state"]) &
         (isi_df["district"] == row["district"])
@@ -87,30 +81,28 @@ def recommendation_summary(row):
     demo = subset["demo_norm"].mean()
 
     if row["predicted_risk_next"] == 2:
-        return "Increase biometric capacity" if bio >= demo else "Deploy update camps"
+        return (
+            "Increase biometric capacity / deploy iris scanners"
+            if bio >= demo
+            else "Organize demographic update camps"
+        )
     elif row["predicted_risk_next"] == 1:
-        return "Monitor & prepare"
+        return "Monitor trends and prepare standby staff"
     else:
-        return "No action required"
+        return "No immediate action required"
+
 
 alerts_df["Recommended Action"] = alerts_df.apply(
-    recommendation_summary, axis=1
+    compute_recommended_action, axis=1
 )
 
-# =========================================================
-# Population Lifecycle Intelligence (State-wise)
-# =========================================================
 pli_df = compute_state_lifecycle_intelligence(lifecycle_df)
 
 # =========================================================
 # Tabs
 # =========================================================
 tab_alerts, tab_analysis, tab_simulator = st.tabs(
-    [
-        "🚦 National Risk Alerts",
-        "🔍 State & District Analysis",
-        "🧪 Resource Impact Simulator"
-    ]
+    ["🚦 National Risk Alerts", "🔍 State & District Analysis", "🧪 Resource Impact Simulator"]
 )
 
 # =========================================================
@@ -118,77 +110,126 @@ tab_alerts, tab_analysis, tab_simulator = st.tabs(
 # =========================================================
 with tab_alerts:
 
-    st.subheader("📊 National Risk Distribution (Next Month)")
+    st.subheader("📊 National Risk Overview")
 
-    risk_counts = alerts_df["predicted_risk_next"].value_counts().sort_index()
-    labels = ["Low", "Medium", "High"]
-    values = [
-        risk_counts.get(0, 0),
-        risk_counts.get(1, 0),
-        risk_counts.get(2, 0)
-    ]
+    col1, col2 = st.columns([1, 1])
 
-    fig_nat, ax_nat = plt.subplots()
-    ax_nat.bar(labels, values, color=["green", "gold", "red"])
-    ax_nat.set_ylabel("Number of Districts")
-    ax_nat.set_title("Next-Month Aadhaar Service Risk Distribution")
-    st.pyplot(fig_nat)
+    # ---------- Infographic ----------
+    with col1:
+        st.caption("Distribution of districts by predicted Aadhaar service risk level.")
 
-    # ---------------- Escalation Alerts ----------------
-    st.subheader("🚨 Escalation Alerts (Compared to Last Month)")
+        risk_counts = alerts_df["predicted_risk_next"].value_counts().sort_index()
+        fig, ax = plt.subplots(figsize=(4.5, 3))
+        ax.bar(
+            ["Low", "Medium", "High"],
+            [risk_counts.get(0, 0), risk_counts.get(1, 0), risk_counts.get(2, 0)],
+            color=["green", "gold", "red"]
+        )
+        ax.set_ylabel("District Count")
+        st.pyplot(fig)
 
-    escalated = alerts_df[
-        alerts_df["escalation_status"].str.contains("Escalated")
-    ]
+        st.markdown("**How to read this chart:**")
+        st.markdown("- Taller bars indicate more districts under that risk level")
+        st.markdown("- Growth in 🔴 High indicates national stress buildup")
 
-    if escalated.empty:
-        st.success("No districts escalated to higher risk this month.")
-    else:
+    # ---------- Risk Tables ----------
+    with col2:
+        st.caption("All districts classified by predicted risk level for the next month.")
+
+        tab_high, tab_medium, tab_low = st.tabs(
+            ["🔴 High Risk", "🟡 Medium Risk", "🟢 Low Risk"]
+        )
+
+        for risk_val, tab in [(2, tab_high), (1, tab_medium), (0, tab_low)]:
+            with tab:
+                st.dataframe(
+                    alerts_df[alerts_df["predicted_risk_next"] == risk_val][
+                        ["state", "district", "Risk Level", "Recommended Action"]
+                    ].sort_values(["state", "district"]),
+                    height=250,
+                    use_container_width=True
+                )
+
+    # ---------- Escalation Section ----------
+    st.subheader("🚨 Risk Escalation Analysis")
+    st.caption("Classification of districts based on month-over-month risk change.")
+
+    tab_esc, tab_persist, tab_other = st.tabs(
+        ["⬆️ Escalated", "⚠️ Persistent High", "➖ No Change / Reduced"]
+    )
+
+    with tab_esc:
         st.dataframe(
-            escalated[
+            alerts_df[
+                alerts_df["escalation_status"].str.contains("Escalated")
+            ][
                 ["state", "district", "Risk Level", "escalation_status", "Recommended Action"]
-            ].sort_values(["state", "district"]),
+            ],
+            height=250,
             use_container_width=True
         )
 
-    # ---------------- Risk Tabs ----------------
-    tab_high, tab_medium, tab_low = st.tabs(
-        ["🔴 High Risk", "🟡 Medium Risk", "🟢 Low Risk"]
+    with tab_persist:
+        st.dataframe(
+            alerts_df[
+                alerts_df["escalation_status"].str.contains("Persistent")
+            ][
+                ["state", "district", "Risk Level", "escalation_status", "Recommended Action"]
+            ],
+            height=250,
+            use_container_width=True
+        )
+
+    with tab_other:
+        st.dataframe(
+            alerts_df[
+                alerts_df["escalation_status"].isin(["No Change", "⬇️ Risk Reduced"])
+            ][
+                ["state", "district", "Risk Level", "escalation_status", "Recommended Action"]
+            ],
+            height=250,
+            use_container_width=True
+        )
+
+    st.info(
+        "🧠 **Signals Explained:**  \n"
+        "⬆️ Escalated → Situation worsening, act early  \n"
+        "⚠️ Persistent High → Structural pressure remains  \n"
+        "➖ No Change / Reduced → Situation stable or improving"
     )
 
-    for risk_val, tab in [(2, tab_high), (1, tab_medium), (0, tab_low)]:
-        with tab:
-            df = alerts_df[alerts_df["predicted_risk_next"] == risk_val]
-            st.dataframe(
-                df[
-                    ["state", "district", "Risk Level", "escalation_status", "Recommended Action"]
-                ].sort_values(["state", "district"]),
-                use_container_width=True
-            )
+    st.markdown(
+        "**Features used:** Risk prediction model, Identity Stress Index (ISI), "
+        "and month-over-month escalation detection."
+    )
 
 # =========================================================
 # TAB 2: STATE & DISTRICT ANALYSIS
 # =========================================================
 with tab_analysis:
 
-    st.subheader("🔎 State & District Risk Analysis")
+    st.subheader("🔍 State & District Risk Analysis")
+    st.caption("Why a district is under stress and what actions are recommended.")
 
-    selected_state = st.selectbox(
-        "Select State", sorted(alerts_df["state"].unique())
-    )
+    c1, c2 = st.columns([1, 1])
 
-    state_df = alerts_df[alerts_df["state"] == selected_state]
+    with c1:
+        selected_state = st.selectbox("Select State", sorted(alerts_df["state"].unique()))
+    with c2:
+        selected_district = st.selectbox(
+            "Select District",
+            sorted(alerts_df[alerts_df["state"] == selected_state]["district"].unique())
+        )
 
-    selected_district = st.selectbox(
-        "Select District", sorted(state_df["district"].unique())
-    )
+    alert_row = alerts_df[
+        (alerts_df["state"] == selected_state) &
+        (alerts_df["district"] == selected_district)
+    ].iloc[0]
 
-    alert_row = state_df[state_df["district"] == selected_district].iloc[0]
     risk_level = alert_row["predicted_risk_next"]
 
     st.markdown(
-        f"### {selected_state} → {selected_district} : "
-        f"**{risk_map[risk_level]} Risk Next Month**"
+        f"### {selected_state} → {selected_district} | **{risk_map[risk_level]} Risk**"
     )
     st.markdown(f"**Risk Change:** {alert_row['escalation_status']}")
 
@@ -197,182 +238,81 @@ with tab_analysis:
         (isi_df["district"] == selected_district)
     ]
 
-    bio_mean = hist_df["bio_norm"].mean()
-    demo_mean = hist_df["demo_norm"].mean()
-    enrol_mean = hist_df["enrol_norm"].mean()
-
-    # ---------------- WHY ----------------
-    st.subheader("🧠 Why is this area at risk?")
-
-    reasons = []
-    if bio_mean > 0.6:
-        reasons.append("High biometric update activity increasing authentication load.")
-    if demo_mean > 0.5:
-        reasons.append("Demographic update surge indicating migration or corrections.")
-    if enrol_mean < 0.2:
-        reasons.append("Enrolment saturation shifting load to updates.")
-    if not reasons:
-        reasons.append("No dominant stress drivers detected.")
-
-    for r in reasons:
-        st.write("•", r)
-
-    # ---------------- Stress Drivers ----------------
-    st.subheader("📊 Stress Driver Contribution")
-
-    driver_df = pd.DataFrame({
-        "Driver": ["Biometric", "Demographic", "Enrolment"],
-        "Intensity": [bio_mean, demo_mean, enrol_mean]
-    })
-
-    fig_drv, ax_drv = plt.subplots()
-    ax_drv.barh(driver_df["Driver"], driver_df["Intensity"])
-    st.pyplot(fig_drv)
-
-    # ---------------- ISI Trend ----------------
-    st.subheader("📈 Identity Stress Trend (District)")
-
-    trend = hist_df.groupby("year_month")["isi_score"].mean().reset_index()
-    fig_tr, ax_tr = plt.subplots()
-    ax_tr.plot(trend["year_month"], trend["isi_score"], marker="o")
-    plt.xticks(rotation=45)
-    st.pyplot(fig_tr)
-
-    # ---------------- District Heatmap ----------------
-    st.subheader("🌍 District Stress Heatmap (State Level)")
-
-    state_hist = isi_df[isi_df["state"] == selected_state]
-    heatmap_df = state_hist.pivot(
-        index="district", columns="year_month", values="isi_score"
+    bio, demo, enrol = (
+        hist_df["bio_norm"].mean(),
+        hist_df["demo_norm"].mean(),
+        hist_df["enrol_norm"].mean()
     )
 
-    fig_hm, ax_hm = plt.subplots(figsize=(10, 6))
-    ax_hm.imshow(heatmap_df.fillna(0), aspect="auto", cmap="Reds")
-    ax_hm.set_ylabel("District")
-    ax_hm.set_xlabel("Month")
-    st.pyplot(fig_hm)
+    col1, col2 = st.columns([1, 1])
 
-    # ---------------- Lifecycle Persistence ----------------
-    st.subheader("🔁 Identity Lifecycle Persistence (State)")
+    with col1:
+        st.caption("Relative contribution of identity activities to stress.")
 
-    lifecycle_state = lifecycle_df[lifecycle_df["state"] == selected_state]
-    lifecycle_summary = (
-        lifecycle_state.groupby("lifecycle_cluster")
-        .size()
-        .reset_index(name="Observed Months")
-        .sort_values("Observed Months", ascending=False)
-    )
-    st.dataframe(lifecycle_summary, use_container_width=True)
+        fig, ax = plt.subplots(figsize=(4.5, 3))
+        ax.barh(["Biometric", "Demographic", "Enrolment"], [bio, demo, enrol])
+        st.pyplot(fig)
 
-    # ---------------- Population Lifecycle Intelligence ----------------
+    with col2:
+        st.caption("Trend of Identity Stress Index (ISI) over time.")
+
+        trend = hist_df.groupby("year_month")["isi_score"].mean().reset_index()
+        fig, ax = plt.subplots(figsize=(4.5, 3))
+        ax.plot(trend["year_month"], trend["isi_score"], marker="o")
+        ax.tick_params(axis="x", rotation=45)
+        st.pyplot(fig)
+
     st.subheader("🧬 Population Lifecycle Intelligence (State-Level)")
+    st.caption("Policy-relevant insight derived from dominant identity lifecycle patterns.")
 
     state_pli = pli_df[pli_df["state"] == selected_state]
     if not state_pli.empty:
         row = state_pli.iloc[0]
-        st.markdown(
-            f"""
-            **Dominant Lifecycle Stage:**  
-            🔹 **{row['lifecycle_stage']}**
+        st.markdown(f"**Dominant Lifecycle Stage:** {row['lifecycle_stage']}")
+        st.markdown(f"**Policy Recommendation:** {row['policy_recommendation']}")
+        st.markdown(f"**Relevant SDGs:** {row['sdgs']}")
 
-            **Policy Recommendation:**  
-            {row['policy_recommendation']}
-
-            **Relevant SDGs:**  
-            {row['sdgs']}
-            """
-        )
-
-    # ---------------- Recommendations ----------------
-    st.subheader("🛠️ Recommended Actions")
-
-    actions = (
-        ["Deploy iris scanners and biometric operators", "Extend Aadhaar centre hours"]
-        if risk_level == 2 and bio_mean >= demo_mean else
-        ["Organize demographic update camps", "Increase correction staff"]
-        if risk_level == 2 else
-        ["Monitor trends", "Prepare standby staff"]
-        if risk_level == 1 else
-        ["Continue routine operations"]
+    st.info(
+        "🧠 This tab explains WHY stress occurs, WHICH activity dominates, "
+        "and WHAT operational and policy actions are suitable."
     )
-
-    for a in actions:
-        st.write("•", a)
-
-    # ---------------- PDF Report ----------------
-    st.subheader("⬇️ Download District Report (PDF)")
-
-    pdf_path = f"outputs/reports/{selected_state}_{selected_district}_AEWS_Report.pdf"
-
-    generate_pdf_report(
-        state=selected_state,
-        district=selected_district,
-        risk_level=risk_map[risk_level],
-        reasons=reasons,
-        actions=actions,
-        output_path=pdf_path
-    )
-
-    with open(pdf_path, "rb") as f:
-        st.download_button(
-            "Download PDF Report",
-            f,
-            file_name=os.path.basename(pdf_path),
-            mime="application/pdf"
-        )
 
 # =========================================================
-# TAB 3: RESOURCE IMPACT SIMULATOR (CHAT UI)
+# TAB 3: RESOURCE IMPACT SIMULATOR
 # =========================================================
 with tab_simulator:
 
     st.subheader("🧪 Resource Impact Simulator")
-    st.caption(
-        "Simulate the likely impact of UIDAI resource allocation decisions"
-    )
+    st.caption("Simulate how adding resources may reduce Aadhaar service stress.")
 
     query = st.text_input(
         "Ask a what-if question",
         placeholder="What if UIDAI adds 2 biometric operators in Maharashtra Palghar?"
     )
 
-    if st.button("Simulate Impact") and query:
+    if st.button("Simulate") and query:
         parsed = parse_simulation_query(query)
 
-        if parsed["resource"] != "biometric":
-            st.warning("Currently only biometric operator simulations are supported.")
+        hist_df = isi_df[
+            (isi_df["state"].str.contains(parsed["state"], case=False, na=False)) &
+            (isi_df["district"].str.contains(parsed["district"], case=False, na=False))
+        ]
+
+        if hist_df.empty:
+            st.error("No historical data found for the specified location.")
         else:
-            hist_df = isi_df[
-                (isi_df["state"].str.contains(parsed["state"], case=False, na=False)) &
-                (isi_df["district"].str.contains(parsed["district"], case=False, na=False))
-            ]
+            result = simulate_biometric_capacity(hist_df, parsed["quantity"])
 
-            if hist_df.empty:
-                st.error("No historical data found for the specified location.")
-            else:
-                result = simulate_biometric_capacity(
-                    hist_df,
-                    parsed["quantity"]
-                )
+            col1, col2 = st.columns([1, 1])
 
-                st.success("Simulation Result (Indicative)")
+            with col1:
+                st.markdown(f"**Estimated ISI Reduction:** {result['isi_reduction_pct']}%")
+                st.markdown(f"**ISI Before → After:** {result['old_isi']} → {result['new_isi']}")
 
-                st.markdown(
-                    f"""
-                    **Location:** {parsed['state']} → {parsed['district']}  
-                    **Resource Added:** {parsed['quantity']} biometric operators  
+            with col2:
+                st.markdown(f"**Risk Impact:** {result['risk_downgrade']}")
 
-                    **Estimated ISI Reduction:** {result['isi_reduction_pct']}%  
-                    **ISI (Before → After):** {result['old_isi']} → {result['new_isi']}  
-                    **Risk Impact:** {result['risk_downgrade']}
-
-                    **Interpretation:**  
-                    Increasing biometric capacity reduces authentication pressure
-                    and can help downgrade service stress if sustained.
-                    """
-                )
-
-                st.info(
-                    "⚠️ This is a scenario simulation based on historical elasticities, "
-                    "not a deterministic prediction."
-                )
+            st.info(
+                "⚠️ Scenario simulation based on historical elasticities, "
+                "not a deterministic forecast."
+            )
