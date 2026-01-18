@@ -1,3 +1,6 @@
+# =========================================================
+# Streamlit + Windows-safe import setup
+# =========================================================
 import sys
 import os
 
@@ -5,19 +8,22 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-
+# =========================================================
+# Imports
+# =========================================================
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-import os
 
 from state_cleaning import clean_state_names
 from pdf_report import generate_pdf_report
-from src.analysis.escalation_detector import detect_risk_escalation
 
-# -------------------------------------------------
-# Page config
-# -------------------------------------------------
+from src.analysis.escalation_detector import detect_risk_escalation
+from src.policy.lifecycle_policy_engine import compute_state_lifecycle_intelligence
+
+# =========================================================
+# Page Config
+# =========================================================
 st.set_page_config(
     page_title="AEWS – Aadhaar Early Warning System",
     layout="wide"
@@ -25,12 +31,12 @@ st.set_page_config(
 
 st.title("🚨 AEWS – Aadhaar Early Warning System")
 st.caption(
-    "Proactive next-month Aadhaar service stress alerts with escalation detection, explanations & actions"
+    "Early warning, escalation detection, and policy intelligence derived from aggregated Aadhaar behavior"
 )
 
-# -------------------------------------------------
-# Load data
-# -------------------------------------------------
+# =========================================================
+# Load Data
+# =========================================================
 @st.cache_data
 def load_data():
     isi_df = pd.read_csv("data/processed/isi_scores.csv")
@@ -40,30 +46,30 @@ def load_data():
 
 isi_df, lifecycle_df, pred_df = load_data()
 
-# -------------------------------------------------
-# Clean state names
-# -------------------------------------------------
+# =========================================================
+# Clean State Names
+# =========================================================
 isi_df = clean_state_names(isi_df)
 lifecycle_df = clean_state_names(lifecycle_df)
 pred_df = clean_state_names(pred_df)
 
-# -------------------------------------------------
-# Escalation detection (FEATURE 1)
-# -------------------------------------------------
+# =========================================================
+# Escalation Detection (Feature 1)
+# =========================================================
 pred_df = detect_risk_escalation(pred_df)
 
-# -------------------------------------------------
-# Latest month logic
-# -------------------------------------------------
+# =========================================================
+# Latest Month Filtering
+# =========================================================
 latest_month = pred_df["year_month"].max()
 alerts_df = pred_df[pred_df["year_month"] == latest_month].copy()
 
 risk_map = {0: "🟢 Low", 1: "🟡 Medium", 2: "🔴 High"}
 alerts_df["Risk Level"] = alerts_df["predicted_risk_next"].map(risk_map)
 
-# -------------------------------------------------
-# Recommendation summary (table-level)
-# -------------------------------------------------
+# =========================================================
+# Recommendation Summary (Table-level)
+# =========================================================
 def recommendation_summary(row):
     subset = isi_df[
         (isi_df["state"] == row["state"]) &
@@ -87,19 +93,23 @@ alerts_df["Recommended Action"] = alerts_df.apply(
     recommendation_summary, axis=1
 )
 
-# -------------------------------------------------
+# =========================================================
+# Population Lifecycle Intelligence (State-wise)
+# =========================================================
+pli_df = compute_state_lifecycle_intelligence(lifecycle_df)
+
+# =========================================================
 # Tabs
-# -------------------------------------------------
+# =========================================================
 tab_alerts, tab_analysis = st.tabs(
     ["🚦 National Risk Alerts", "🔍 State & District Risk Analysis"]
 )
 
-# =================================================
+# =========================================================
 # TAB 1: NATIONAL RISK ALERTS
-# =================================================
+# =========================================================
 with tab_alerts:
 
-    # ---------- NATIONAL DISTRIBUTION ----------
     st.subheader("📊 National Risk Distribution (Next Month)")
 
     risk_counts = alerts_df["predicted_risk_next"].value_counts().sort_index()
@@ -116,7 +126,7 @@ with tab_alerts:
     ax_nat.set_title("Next-Month Aadhaar Service Risk Distribution")
     st.pyplot(fig_nat)
 
-    # ---------- ESCALATION ALERTS ----------
+    # ---------------- Escalation Alerts ----------------
     st.subheader("🚨 Escalation Alerts (Compared to Last Month)")
 
     escalated = alerts_df[
@@ -128,70 +138,33 @@ with tab_alerts:
     else:
         st.dataframe(
             escalated[
-                [
-                    "state",
-                    "district",
-                    "Risk Level",
-                    "escalation_status",
-                    "Recommended Action",
-                ]
+                ["state", "district", "Risk Level", "escalation_status", "Recommended Action"]
             ].sort_values(["state", "district"]),
-            use_container_width=True,
+            use_container_width=True
         )
 
-    # ---------- RISK TABS ----------
+    # ---------------- Risk Tabs ----------------
     tab_high, tab_medium, tab_low = st.tabs(
         ["🔴 High Risk", "🟡 Medium Risk", "🟢 Low Risk"]
     )
 
-    with tab_high:
-        df = alerts_df[alerts_df["predicted_risk_next"] == 2]
-        st.dataframe(
-            df[
-                [
-                    "state",
-                    "district",
-                    "Risk Level",
-                    "escalation_status",
-                    "Recommended Action",
-                ]
-            ].sort_values(["state", "district"]),
-            use_container_width=True,
-        )
+    for label, risk_val, tab in [
+        ("High", 2, tab_high),
+        ("Medium", 1, tab_medium),
+        ("Low", 0, tab_low),
+    ]:
+        with tab:
+            df = alerts_df[alerts_df["predicted_risk_next"] == risk_val]
+            st.dataframe(
+                df[
+                    ["state", "district", "Risk Level", "escalation_status", "Recommended Action"]
+                ].sort_values(["state", "district"]),
+                use_container_width=True
+            )
 
-    with tab_medium:
-        df = alerts_df[alerts_df["predicted_risk_next"] == 1]
-        st.dataframe(
-            df[
-                [
-                    "state",
-                    "district",
-                    "Risk Level",
-                    "escalation_status",
-                    "Recommended Action",
-                ]
-            ].sort_values(["state", "district"]),
-            use_container_width=True,
-        )
-
-    with tab_low:
-        df = alerts_df[alerts_df["predicted_risk_next"] == 0]
-        st.dataframe(
-            df[
-                [
-                    "state",
-                    "district",
-                    "Risk Level",
-                    "escalation_status",
-                    "Recommended Action",
-                ]
-            ].sort_values(["state", "district"]),
-            use_container_width=True,
-        )
-
-# =================================================
-# TAB 2: STATE & DISTRICT ANALYSIS
-# =================================================
+# =========================================================
+# TAB 2: STATE & DISTRICT RISK ANALYSIS
+# =========================================================
 with tab_analysis:
 
     st.subheader("🔎 State & District Risk Analysis")
@@ -213,19 +186,18 @@ with tab_analysis:
         f"### {selected_state} → {selected_district} : "
         f"**{risk_map[risk_level]} Risk Next Month**"
     )
-
     st.markdown(f"**Risk Change:** {alert_row['escalation_status']}")
 
     hist_df = isi_df[
-        (isi_df["state"] == selected_state)
-        & (isi_df["district"] == selected_district)
+        (isi_df["state"] == selected_state) &
+        (isi_df["district"] == selected_district)
     ]
 
     bio_mean = hist_df["bio_norm"].mean()
     demo_mean = hist_df["demo_norm"].mean()
     enrol_mean = hist_df["enrol_norm"].mean()
 
-    # ---------- WHY ----------
+    # ---------------- WHY ----------------
     st.subheader("🧠 Why is this area at risk?")
 
     reasons = []
@@ -241,35 +213,31 @@ with tab_analysis:
     for r in reasons:
         st.write("•", r)
 
-    # ---------- DRIVER CHART ----------
+    # ---------------- Stress Drivers ----------------
     st.subheader("📊 Stress Driver Contribution")
 
-    driver_df = pd.DataFrame(
-        {
-            "Driver": ["Biometric", "Demographic", "Enrolment"],
-            "Intensity": [bio_mean, demo_mean, enrol_mean],
-        }
-    )
+    driver_df = pd.DataFrame({
+        "Driver": ["Biometric", "Demographic", "Enrolment"],
+        "Intensity": [bio_mean, demo_mean, enrol_mean]
+    })
 
     fig_drv, ax_drv = plt.subplots()
     ax_drv.barh(driver_df["Driver"], driver_df["Intensity"])
     st.pyplot(fig_drv)
 
-    # ---------- ISI TREND ----------
+    # ---------------- ISI Trend ----------------
     st.subheader("📈 Identity Stress Trend (District)")
 
     trend = hist_df.groupby("year_month")["isi_score"].mean().reset_index()
-
     fig_tr, ax_tr = plt.subplots()
     ax_tr.plot(trend["year_month"], trend["isi_score"], marker="o")
     plt.xticks(rotation=45)
     st.pyplot(fig_tr)
 
-    # ---------- DISTRICT HEATMAP ----------
+    # ---------------- District Heatmap ----------------
     st.subheader("🌍 District Stress Heatmap (State Level)")
 
     state_hist = isi_df[isi_df["state"] == selected_state]
-
     heatmap_df = state_hist.pivot(
         index="district", columns="year_month", values="isi_score"
     )
@@ -280,35 +248,55 @@ with tab_analysis:
     ax_hm.set_xlabel("Month")
     st.pyplot(fig_hm)
 
-    # ---------- LIFECYCLE ----------
+    # ---------------- Lifecycle Persistence ----------------
     st.subheader("🔁 Identity Lifecycle Persistence (State)")
 
     lifecycle_state = lifecycle_df[lifecycle_df["state"] == selected_state]
-
     lifecycle_summary = (
         lifecycle_state.groupby("lifecycle_cluster")
         .size()
         .reset_index(name="Observed Months")
         .sort_values("Observed Months", ascending=False)
     )
-
     st.dataframe(lifecycle_summary, use_container_width=True)
 
-    # ---------- RECOMMENDATIONS ----------
+    # =====================================================
+    # 🧬 Population Lifecycle Intelligence (State-level)
+    # =====================================================
+    st.subheader("🧬 Population Lifecycle Intelligence (State-Level)")
+
+    state_pli = pli_df[pli_df["state"] == selected_state]
+
+    if not state_pli.empty:
+        row = state_pli.iloc[0]
+        st.markdown(
+            f"""
+            **Dominant Lifecycle Stage:**  
+            🔹 **{row['lifecycle_stage']}**
+
+            **What this indicates:**  
+            Aggregated Aadhaar behavior suggests this lifecycle stage dominates population identity activity.
+
+            **Policy Recommendation:**  
+            {row['policy_recommendation']}
+
+            **Relevant SDGs:**  
+            {row['sdgs']}
+            """
+        )
+    else:
+        st.info("Not enough data to infer lifecycle intelligence for this state.")
+
+    # ---------------- Recommendations ----------------
     st.subheader("🛠️ Recommended Actions")
 
     actions = []
     if risk_level == 2:
-        if bio_mean >= demo_mean:
-            actions = [
-                "Deploy iris scanners and biometric operators",
-                "Extend Aadhaar centre hours",
-            ]
-        else:
-            actions = [
-                "Organize demographic update camps",
-                "Increase correction staff",
-            ]
+        actions = (
+            ["Deploy iris scanners and biometric operators", "Extend Aadhaar centre hours"]
+            if bio_mean >= demo_mean
+            else ["Organize demographic update camps", "Increase correction staff"]
+        )
     elif risk_level == 1:
         actions = ["Monitor trends", "Prepare standby staff"]
     else:
@@ -317,7 +305,7 @@ with tab_analysis:
     for a in actions:
         st.write("•", a)
 
-    # ---------- PDF ----------
+    # ---------------- PDF Report ----------------
     st.subheader("⬇️ Download District Report (PDF)")
 
     pdf_path = f"outputs/reports/{selected_state}_{selected_district}_AEWS_Report.pdf"
@@ -328,7 +316,7 @@ with tab_analysis:
         risk_level=risk_map[risk_level],
         reasons=reasons,
         actions=actions,
-        output_path=pdf_path,
+        output_path=pdf_path
     )
 
     with open(pdf_path, "rb") as f:
@@ -336,5 +324,5 @@ with tab_analysis:
             "Download PDF Report",
             f,
             file_name=os.path.basename(pdf_path),
-            mime="application/pdf",
+            mime="application/pdf"
         )
