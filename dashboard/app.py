@@ -1,5 +1,5 @@
 # =========================================================
-# Streamlit + Windows-safe import setup
+# Windows-safe import setup (VERY IMPORTANT)
 # =========================================================
 import sys
 import os
@@ -20,6 +20,10 @@ from pdf_report import generate_pdf_report
 
 from src.analysis.escalation_detector import detect_risk_escalation
 from src.policy.lifecycle_policy_engine import compute_state_lifecycle_intelligence
+from src.simulator.resource_impact_simulator import (
+    parse_simulation_query,
+    simulate_biometric_capacity
+)
 
 # =========================================================
 # Page Config
@@ -31,7 +35,7 @@ st.set_page_config(
 
 st.title("🚨 AEWS – Aadhaar Early Warning System")
 st.caption(
-    "Early warning, escalation detection, and policy intelligence derived from aggregated Aadhaar behavior"
+    "Early warning, escalation detection, policy intelligence & decision simulation"
 )
 
 # =========================================================
@@ -54,12 +58,12 @@ lifecycle_df = clean_state_names(lifecycle_df)
 pred_df = clean_state_names(pred_df)
 
 # =========================================================
-# Escalation Detection (Feature 1)
+# Escalation Detection
 # =========================================================
 pred_df = detect_risk_escalation(pred_df)
 
 # =========================================================
-# Latest Month Filtering
+# Latest Month Filter
 # =========================================================
 latest_month = pred_df["year_month"].max()
 alerts_df = pred_df[pred_df["year_month"] == latest_month].copy()
@@ -68,7 +72,7 @@ risk_map = {0: "🟢 Low", 1: "🟡 Medium", 2: "🔴 High"}
 alerts_df["Risk Level"] = alerts_df["predicted_risk_next"].map(risk_map)
 
 # =========================================================
-# Recommendation Summary (Table-level)
+# Recommendation Summary (table-level)
 # =========================================================
 def recommendation_summary(row):
     subset = isi_df[
@@ -101,8 +105,12 @@ pli_df = compute_state_lifecycle_intelligence(lifecycle_df)
 # =========================================================
 # Tabs
 # =========================================================
-tab_alerts, tab_analysis = st.tabs(
-    ["🚦 National Risk Alerts", "🔍 State & District Risk Analysis"]
+tab_alerts, tab_analysis, tab_simulator = st.tabs(
+    [
+        "🚦 National Risk Alerts",
+        "🔍 State & District Analysis",
+        "🧪 Resource Impact Simulator"
+    ]
 )
 
 # =========================================================
@@ -148,11 +156,7 @@ with tab_alerts:
         ["🔴 High Risk", "🟡 Medium Risk", "🟢 Low Risk"]
     )
 
-    for label, risk_val, tab in [
-        ("High", 2, tab_high),
-        ("Medium", 1, tab_medium),
-        ("Low", 0, tab_low),
-    ]:
+    for risk_val, tab in [(2, tab_high), (1, tab_medium), (0, tab_low)]:
         with tab:
             df = alerts_df[alerts_df["predicted_risk_next"] == risk_val]
             st.dataframe(
@@ -163,7 +167,7 @@ with tab_alerts:
             )
 
 # =========================================================
-# TAB 2: STATE & DISTRICT RISK ANALYSIS
+# TAB 2: STATE & DISTRICT ANALYSIS
 # =========================================================
 with tab_analysis:
 
@@ -260,22 +264,16 @@ with tab_analysis:
     )
     st.dataframe(lifecycle_summary, use_container_width=True)
 
-    # =====================================================
-    # 🧬 Population Lifecycle Intelligence (State-level)
-    # =====================================================
+    # ---------------- Population Lifecycle Intelligence ----------------
     st.subheader("🧬 Population Lifecycle Intelligence (State-Level)")
 
     state_pli = pli_df[pli_df["state"] == selected_state]
-
     if not state_pli.empty:
         row = state_pli.iloc[0]
         st.markdown(
             f"""
             **Dominant Lifecycle Stage:**  
             🔹 **{row['lifecycle_stage']}**
-
-            **What this indicates:**  
-            Aggregated Aadhaar behavior suggests this lifecycle stage dominates population identity activity.
 
             **Policy Recommendation:**  
             {row['policy_recommendation']}
@@ -284,23 +282,19 @@ with tab_analysis:
             {row['sdgs']}
             """
         )
-    else:
-        st.info("Not enough data to infer lifecycle intelligence for this state.")
 
     # ---------------- Recommendations ----------------
     st.subheader("🛠️ Recommended Actions")
 
-    actions = []
-    if risk_level == 2:
-        actions = (
-            ["Deploy iris scanners and biometric operators", "Extend Aadhaar centre hours"]
-            if bio_mean >= demo_mean
-            else ["Organize demographic update camps", "Increase correction staff"]
-        )
-    elif risk_level == 1:
-        actions = ["Monitor trends", "Prepare standby staff"]
-    else:
-        actions = ["Continue routine operations"]
+    actions = (
+        ["Deploy iris scanners and biometric operators", "Extend Aadhaar centre hours"]
+        if risk_level == 2 and bio_mean >= demo_mean else
+        ["Organize demographic update camps", "Increase correction staff"]
+        if risk_level == 2 else
+        ["Monitor trends", "Prepare standby staff"]
+        if risk_level == 1 else
+        ["Continue routine operations"]
+    )
 
     for a in actions:
         st.write("•", a)
@@ -326,3 +320,59 @@ with tab_analysis:
             file_name=os.path.basename(pdf_path),
             mime="application/pdf"
         )
+
+# =========================================================
+# TAB 3: RESOURCE IMPACT SIMULATOR (CHAT UI)
+# =========================================================
+with tab_simulator:
+
+    st.subheader("🧪 Resource Impact Simulator")
+    st.caption(
+        "Simulate the likely impact of UIDAI resource allocation decisions"
+    )
+
+    query = st.text_input(
+        "Ask a what-if question",
+        placeholder="What if UIDAI adds 2 biometric operators in Maharashtra Palghar?"
+    )
+
+    if st.button("Simulate Impact") and query:
+        parsed = parse_simulation_query(query)
+
+        if parsed["resource"] != "biometric":
+            st.warning("Currently only biometric operator simulations are supported.")
+        else:
+            hist_df = isi_df[
+                (isi_df["state"].str.contains(parsed["state"], case=False, na=False)) &
+                (isi_df["district"].str.contains(parsed["district"], case=False, na=False))
+            ]
+
+            if hist_df.empty:
+                st.error("No historical data found for the specified location.")
+            else:
+                result = simulate_biometric_capacity(
+                    hist_df,
+                    parsed["quantity"]
+                )
+
+                st.success("Simulation Result (Indicative)")
+
+                st.markdown(
+                    f"""
+                    **Location:** {parsed['state']} → {parsed['district']}  
+                    **Resource Added:** {parsed['quantity']} biometric operators  
+
+                    **Estimated ISI Reduction:** {result['isi_reduction_pct']}%  
+                    **ISI (Before → After):** {result['old_isi']} → {result['new_isi']}  
+                    **Risk Impact:** {result['risk_downgrade']}
+
+                    **Interpretation:**  
+                    Increasing biometric capacity reduces authentication pressure
+                    and can help downgrade service stress if sustained.
+                    """
+                )
+
+                st.info(
+                    "⚠️ This is a scenario simulation based on historical elasticities, "
+                    "not a deterministic prediction."
+                )
