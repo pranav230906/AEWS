@@ -1,4 +1,3 @@
-
 pandas
 numpy
 scikit-learn
@@ -11,3 +10,4 @@ shap
 pyyaml
 streamlit
 reportlab
+altair
