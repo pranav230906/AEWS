@@ -147,7 +147,7 @@ with tab_alerts:
                         ["state", "district", "Risk Level", "Recommended Action"]
                     ].sort_values(["state", "district"]),
                     height=250,
-                    use_container_width=True
+                    width='stretch'
                 )
 
     # ---------- Escalation Section ----------
@@ -166,7 +166,7 @@ with tab_alerts:
                 ["state", "district", "Risk Level", "escalation_status", "Recommended Action"]
             ],
             height=250,
-            use_container_width=True
+            width='stretch'
         )
 
     with tab_persist:
@@ -177,7 +177,7 @@ with tab_alerts:
                 ["state", "district", "Risk Level", "escalation_status", "Recommended Action"]
             ],
             height=250,
-            use_container_width=True
+            width='stretch'
         )
 
     with tab_other:
@@ -188,7 +188,7 @@ with tab_alerts:
                 ["state", "district", "Risk Level", "escalation_status", "Recommended Action"]
             ],
             height=250,
-            use_container_width=True
+            width='stretch'
         )
 
     st.info(
