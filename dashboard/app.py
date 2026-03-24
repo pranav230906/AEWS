@@ -14,9 +14,11 @@ if PROJECT_ROOT not in sys.path:
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
+from datetime import datetime
 
 from state_cleaning import clean_state_names
 from pdf_report import generate_pdf_report
+from db import init_db, save_report_to_db, get_past_reports
 
 from src.analysis.escalation_detector import detect_risk_escalation
 from src.policy.lifecycle_policy_engine import compute_state_lifecycle_intelligence
@@ -24,6 +26,12 @@ from src.simulator.resource_impact_simulator import (
     parse_simulation_query,
     simulate_biometric_capacity
 )
+
+# =========================================================
+# Run the Database
+# =========================================================
+init_db()
+
 
 # =========================================================
 # Page Config
@@ -228,54 +236,145 @@ with tab_analysis:
 
     risk_level = alert_row["predicted_risk_next"]
 
-    st.markdown(
-        f"### {selected_state} → {selected_district} | **{risk_map[risk_level]} Risk**"
-    )
-    st.markdown(f"**Risk Change:** {alert_row['escalation_status']}")
+    # ----- Sub-tabs: Current Analysis | Past Reports -----
+    subtab_current, subtab_history = st.tabs(["📊 Current Analysis", "📁 Past Reports"])
 
-    hist_df = isi_df[
-        (isi_df["state"] == selected_state) &
-        (isi_df["district"] == selected_district)
-    ]
+    # =====================================================
+    # SUB-TAB: Current Analysis
+    # =====================================================
+    with subtab_current:
 
-    bio, demo, enrol = (
-        hist_df["bio_norm"].mean(),
-        hist_df["demo_norm"].mean(),
-        hist_df["enrol_norm"].mean()
-    )
+        st.markdown(
+            f"### {selected_state} → {selected_district} | **{risk_map[risk_level]} Risk**"
+        )
+        st.markdown(f"**Risk Change:** {alert_row['escalation_status']}")
 
-    col1, col2 = st.columns([1, 1])
+        hist_df = isi_df[
+            (isi_df["state"] == selected_state) &
+            (isi_df["district"] == selected_district)
+        ]
 
-    with col1:
-        st.caption("Relative contribution of identity activities to stress.")
+        bio, demo, enrol = (
+            hist_df["bio_norm"].mean(),
+            hist_df["demo_norm"].mean(),
+            hist_df["enrol_norm"].mean()
+        )
 
-        fig, ax = plt.subplots(figsize=(4.5, 3))
-        ax.barh(["Biometric", "Demographic", "Enrolment"], [bio, demo, enrol])
-        st.pyplot(fig)
+        col1, col2 = st.columns([1, 1])
 
-    with col2:
-        st.caption("Trend of Identity Stress Index (ISI) over time.")
+        with col1:
+            st.caption("Relative contribution of identity activities to stress.")
 
-        trend = hist_df.groupby("year_month")["isi_score"].mean().reset_index()
-        fig, ax = plt.subplots(figsize=(4.5, 3))
-        ax.plot(trend["year_month"], trend["isi_score"], marker="o")
-        ax.tick_params(axis="x", rotation=45)
-        st.pyplot(fig)
+            fig, ax = plt.subplots(figsize=(4.5, 3))
+            ax.barh(["Biometric", "Demographic", "Enrolment"], [bio, demo, enrol])
+            st.pyplot(fig)
 
-    st.subheader("🧬 Population Lifecycle Intelligence (State-Level)")
-    st.caption("Policy-relevant insight derived from dominant identity lifecycle patterns.")
+        with col2:
+            st.caption("Trend of Identity Stress Index (ISI) over time.")
 
-    state_pli = pli_df[pli_df["state"] == selected_state]
-    if not state_pli.empty:
-        row = state_pli.iloc[0]
-        st.markdown(f"**Dominant Lifecycle Stage:** {row['lifecycle_stage']}")
-        st.markdown(f"**Policy Recommendation:** {row['policy_recommendation']}")
-        st.markdown(f"**Relevant SDGs:** {row['sdgs']}")
+            trend = hist_df.groupby("year_month")["isi_score"].mean().reset_index()
+            fig, ax = plt.subplots(figsize=(4.5, 3))
+            ax.plot(trend["year_month"], trend["isi_score"], marker="o")
+            ax.tick_params(axis="x", rotation=45)
+            st.pyplot(fig)
 
-    st.info(
-        "🧠 This tab explains WHY stress occurs, WHICH activity dominates, "
-        "and WHAT operational and policy actions are suitable."
-    )
+        st.subheader("🧬 Population Lifecycle Intelligence (State-Level)")
+        st.caption("Policy-relevant insight derived from dominant identity lifecycle patterns.")
+
+        state_pli = pli_df[pli_df["state"] == selected_state]
+        if not state_pli.empty:
+            row = state_pli.iloc[0]
+            st.markdown(f"**Dominant Lifecycle Stage:** {row['lifecycle_stage']}")
+            st.markdown(f"**Policy Recommendation:** {row['policy_recommendation']}")
+            st.markdown(f"**Relevant SDGs:** {row['sdgs']}")
+
+        st.info(
+            "🧠 This tab explains WHY stress occurs, WHICH activity dominates, "
+            "and WHAT operational and policy actions are suitable."
+        )
+
+        st.divider()
+
+        # ---------------------------------------------------------
+        # Generate & Download PDF Report (with DB save)
+        # ---------------------------------------------------------
+        if st.button("📄 Generate & Download District Risk Report"):
+            timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+            report_path = os.path.join(
+                PROJECT_ROOT, "outputs", "reports",
+                f"{selected_state}_{selected_district}_Risk_{timestamp_str}.pdf"
+            )
+
+            reasons = [
+                f"Risk Change: {alert_row['escalation_status']}",
+                f"Biometric Activity (Normalized): {bio:.2f}",
+                f"Demographic Activity (Normalized): {demo:.2f}",
+                f"Enrolment Activity (Normalized): {enrol:.2f}"
+            ]
+
+            actions = [alert_row["Recommended Action"]]
+            if not state_pli.empty:
+                actions.append(f"Policy Recommendation: {state_pli.iloc[0]['policy_recommendation']}")
+
+            generate_pdf_report(
+                state=selected_state,
+                district=selected_district,
+                risk_level=risk_map[risk_level],
+                reasons=reasons,
+                actions=actions,
+                output_path=report_path
+            )
+
+            save_report_to_db(selected_state, selected_district, risk_map[risk_level], report_path)
+
+            with open(report_path, "rb") as pdf_file:
+                pdf_bytes = pdf_file.read()
+
+            st.success("✅ Report generated and saved to database!")
+            st.download_button(
+                label="⬇️ Download PDF",
+                data=pdf_bytes,
+                file_name=f"{selected_state}_{selected_district}_Risk_{timestamp_str}.pdf",
+                mime="application/pdf"
+            )
+
+    # =====================================================
+    # SUB-TAB: Past Reports
+    # =====================================================
+    with subtab_history:
+
+        st.subheader(f"📁 Past Reports – {selected_state} → {selected_district}")
+
+        past_reports_df = get_past_reports(selected_state, selected_district)
+
+        if past_reports_df.empty:
+            st.info("No past reports generated for this district yet. "
+                    "Go to the **Current Analysis** tab and click **Generate** to create one.")
+        else:
+            st.caption(f"Showing {len(past_reports_df)} report(s), newest first.")
+
+            for index, rpt_row in past_reports_df.iterrows():
+                col_date, col_risk, col_dl = st.columns([2, 1, 1])
+
+                with col_date:
+                    st.write(f"📅 **Date:** {rpt_row['generation_date']}")
+                with col_risk:
+                    st.write(f"🚦 **Risk:** {rpt_row['risk_level']}")
+                with col_dl:
+                    if os.path.exists(rpt_row["file_path"]):
+                        with open(rpt_row["file_path"], "rb") as f:
+                            st.download_button(
+                                label="Download",
+                                data=f.read(),
+                                file_name=os.path.basename(rpt_row["file_path"]),
+                                mime="application/pdf",
+                                key=f"download_{index}"
+                            )
+                    else:
+                        st.error("File missing from disk.")
+
+                st.divider()
+
 
 # =========================================================
 # TAB 3: RESOURCE IMPACT SIMULATOR
