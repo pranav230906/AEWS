@@ -393,8 +393,8 @@ with tab_simulator:
         parsed = parse_simulation_query(query)
 
         hist_df = isi_df[
-            (isi_df["state"].str.contains(parsed["state"], case=False, na=False)) &
-            (isi_df["district"].str.contains(parsed["district"], case=False, na=False))
+            (isi_df["state"].str.contains(parsed["state"], case=False, na=False, regex=False)) &
+            (isi_df["district"].str.contains(parsed["district"], case=False, na=False, regex=False))
         ]
 
         if hist_df.empty:
