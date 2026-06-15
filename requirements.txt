@@ -11,3 +11,6 @@ pyyaml
 streamlit
 reportlab
 altair
+sqlalchemy 
+psycopg2-binary
+python-dotenv
