@@ -16,11 +16,17 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from datetime import datetime
 
-from state_cleaning import clean_state_names
 from pdf_report import generate_pdf_report
-from db import init_db, save_report_to_db, get_past_reports
+from db import (
+    init_db,
+    save_report_to_db,
+    get_past_reports,
+    get_latest_alerts,
+    get_district_history,
+    get_state_lifecycle_data,
+    get_simulator_data
+)
 
-from src.analysis.escalation_detector import detect_risk_escalation
 from src.policy.lifecycle_policy_engine import compute_state_lifecycle_intelligence
 from src.simulator.resource_impact_simulator import (
     parse_simulation_query,
@@ -47,46 +53,43 @@ st.caption(
 )
 
 # =========================================================
-# Load Data
 # =========================================================
-@st.cache_data
-def load_data():
-    isi_df = pd.read_csv("data/processed/isi_scores.csv")
-    lifecycle_df = pd.read_csv("data/processed/lifecycle_clusters.csv")
-    pred_df = pd.read_csv("outputs/predictions/aews_risk_signals.csv")
-    return isi_df, lifecycle_df, pred_df
-
-isi_df, lifecycle_df, pred_df = load_data()
-
+# Load Data & Cleaning
 # =========================================================
-# Cleaning & Processing
-# =========================================================
-isi_df = clean_state_names(isi_df)
-lifecycle_df = clean_state_names(lifecycle_df)
-pred_df = clean_state_names(pred_df)
-
-pred_df = detect_risk_escalation(pred_df)
-
-latest_month = pred_df["year_month"].max()
-alerts_df = pred_df[pred_df["year_month"] == latest_month].copy()
+alerts_df, latest_month = get_latest_alerts()
 
 risk_map = {0: "🟢 Low", 1: "🟡 Medium", 2: "🔴 High"}
 alerts_df["Risk Level"] = alerts_df["predicted_risk_next"].map(risk_map)
+
+# Compute escalation status for the current alert records
+def compute_escalation_status(row):
+    if pd.isna(row["prev_risk"]):
+        return "No History"
+
+    if row["prev_risk"] < row["predicted_risk_next"]:
+        if row["prev_risk"] == 1 and row["predicted_risk_next"] == 2:
+            return "⬆️ Escalated to High"
+        return "⬆️ Risk Increased"
+
+    if row["prev_risk"] > row["predicted_risk_next"]:
+        return "⬇️ Risk Reduced"
+
+    if row["predicted_risk_next"] == 2:
+        return "⚠️ Persistent High"
+
+    return "No Change"
+
+alerts_df["escalation_status"] = alerts_df.apply(compute_escalation_status, axis=1)
 
 # =========================================================
 # Recommended Action
 # =========================================================
 def compute_recommended_action(row):
-    subset = isi_df[
-        (isi_df["state"] == row["state"]) &
-        (isi_df["district"] == row["district"])
-    ]
+    bio = row["bio_norm_avg"]
+    demo = row["demo_norm_avg"]
 
-    if subset.empty:
+    if pd.isna(bio) or pd.isna(demo):
         return "Monitor"
-
-    bio = subset["bio_norm"].mean()
-    demo = subset["demo_norm"].mean()
 
     if row["predicted_risk_next"] == 2:
         return (
@@ -103,8 +106,6 @@ def compute_recommended_action(row):
 alerts_df["Recommended Action"] = alerts_df.apply(
     compute_recommended_action, axis=1
 )
-
-pli_df = compute_state_lifecycle_intelligence(lifecycle_df)
 
 # =========================================================
 # Tabs
@@ -249,10 +250,7 @@ with tab_analysis:
         )
         st.markdown(f"**Risk Change:** {alert_row['escalation_status']}")
 
-        hist_df = isi_df[
-            (isi_df["state"] == selected_state) &
-            (isi_df["district"] == selected_district)
-        ]
+        hist_df = get_district_history(selected_state, selected_district)
 
         bio, demo, enrol = (
             hist_df["bio_norm"].mean(),
@@ -281,12 +279,15 @@ with tab_analysis:
         st.subheader("🧬 Population Lifecycle Intelligence (State-Level)")
         st.caption("Policy-relevant insight derived from dominant identity lifecycle patterns.")
 
-        state_pli = pli_df[pli_df["state"] == selected_state]
-        if not state_pli.empty:
-            row = state_pli.iloc[0]
-            st.markdown(f"**Dominant Lifecycle Stage:** {row['lifecycle_stage']}")
-            st.markdown(f"**Policy Recommendation:** {row['policy_recommendation']}")
-            st.markdown(f"**Relevant SDGs:** {row['sdgs']}")
+        state_lifecycle_df = get_state_lifecycle_data(selected_state)
+        state_pli = pd.DataFrame()
+        if not state_lifecycle_df.empty:
+            state_pli = compute_state_lifecycle_intelligence(state_lifecycle_df)
+            if not state_pli.empty:
+                row = state_pli.iloc[0]
+                st.markdown(f"**Dominant Lifecycle Stage:** {row['lifecycle_stage']}")
+                st.markdown(f"**Policy Recommendation:** {row['policy_recommendation']}")
+                st.markdown(f"**Relevant SDGs:** {row['sdgs']}")
 
         st.info(
             "🧠 This tab explains WHY stress occurs, WHICH activity dominates, "
@@ -392,10 +393,7 @@ with tab_simulator:
     if st.button("Simulate") and query:
         parsed = parse_simulation_query(query)
 
-        hist_df = isi_df[
-            (isi_df["state"].str.contains(parsed["state"], case=False, na=False, regex=False)) &
-            (isi_df["district"].str.contains(parsed["district"], case=False, na=False, regex=False))
-        ]
+        hist_df = get_simulator_data(parsed["state"], parsed["district"])
 
         if hist_df.empty:
             st.error("No historical data found for the specified location.")
