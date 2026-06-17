@@ -14,5 +14,3 @@ altair
 sqlalchemy 
 psycopg2-binary
 python-dotenv
-sqlalchemy.orm
-dotenv

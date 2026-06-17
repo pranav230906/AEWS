@@ -8,10 +8,20 @@ from dotenv import load_dotenv
 # Load environment variables from the .env file
 load_dotenv()
 
-# Get the database URL from the environment variable
-DATABASE_URL = os.getenv("DATABASE_URL")
+# Get the database URL (check st.secrets first for Streamlit Cloud, fallback to environment/dotenv)
+DATABASE_URL = None
+try:
+    import streamlit as st
+    if "DATABASE_URL" in st.secrets:
+        DATABASE_URL = st.secrets["DATABASE_URL"]
+except Exception:
+    pass
+
 if not DATABASE_URL:
-    raise ValueError("No DATABASE_URL found in environment variables. Check your .env file.")
+    DATABASE_URL = os.getenv("DATABASE_URL")
+
+if not DATABASE_URL:
+    raise ValueError("No DATABASE_URL found. Please set it in your .env file or Streamlit Secrets.")
 
 # Create the Engine with connection pooling
 engine = create_engine(DATABASE_URL, pool_size=5, max_overflow=10)
