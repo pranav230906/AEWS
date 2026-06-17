@@ -77,9 +77,54 @@ class AEWSRiskSignal(Base):
     year_month = Column(String, primary_key=True)
     predicted_risk_next = Column(Integer)
 
-# Initialize Database (Creates tables if they don't exist)
+# Initialize Database (Creates tables if they don't exist and seeds them if empty)
 def init_db():
     Base.metadata.create_all(bind=engine)
+    
+    # Check if database is empty by checking the count of risk signals
+    try:
+        with engine.connect() as conn:
+            res = conn.execute(text("SELECT COUNT(*) FROM aews_risk_signals"))
+            count = res.scalar()
+    except Exception:
+        count = 0
+
+    if count == 0:
+        print("Database is empty. Seeding from local CSV files...")
+        from state_cleaning import clean_state_names
+        
+        try:
+            # 1. Seed isi_scores
+            if os.path.exists("data/processed/isi_scores.csv"):
+                df = pd.read_csv("data/processed/isi_scores.csv")
+                df = clean_state_names(df)
+                # Match table schema columns
+                cols = ["state", "district", "year_month", "enrol_activity", "demo_activity", 
+                        "bio_activity", "enrol_norm", "demo_norm", "bio_norm", "isi_score"]
+                df = df[[c for c in cols if c in df.columns]]
+                df.to_sql("isi_scores", con=engine, if_exists="append", index=False)
+                print("Seeded 'isi_scores' table successfully.")
+
+            # 2. Seed lifecycle_clusters
+            if os.path.exists("data/processed/lifecycle_clusters.csv"):
+                df = pd.read_csv("data/processed/lifecycle_clusters.csv")
+                df = clean_state_names(df)
+                cols = ["state", "district", "year_month", "enrol_activity", "demo_activity", 
+                        "bio_activity", "enrol_norm", "demo_norm", "bio_norm", "isi_score", "lifecycle_cluster"]
+                df = df[[c for c in cols if c in df.columns]]
+                df.to_sql("lifecycle_clusters", con=engine, if_exists="append", index=False)
+                print("Seeded 'lifecycle_clusters' table successfully.")
+
+            # 3. Seed aews_risk_signals
+            if os.path.exists("outputs/predictions/aews_risk_signals.csv"):
+                df = pd.read_csv("outputs/predictions/aews_risk_signals.csv")
+                df = clean_state_names(df)
+                cols = ["state", "district", "year_month", "predicted_risk_next"]
+                df = df[[c for c in cols if c in df.columns]]
+                df.to_sql("aews_risk_signals", con=engine, if_exists="append", index=False)
+                print("Seeded 'aews_risk_signals' table successfully.")
+        except Exception as e:
+            print(f"Error seeding database: {e}")
 
 # Save Report Function
 def save_report_to_db(state: str, district: str, risk_level: str, file_path: str):
