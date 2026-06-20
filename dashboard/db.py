@@ -8,6 +8,9 @@ from dotenv import load_dotenv
 # Load environment variables from the .env file
 load_dotenv()
 
+DB_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(DB_DIR, ".."))
+
 # Get the database URL (check st.secrets first for Streamlit Cloud, fallback to environment/dotenv)
 DATABASE_URL = None
 try:
@@ -95,8 +98,9 @@ def init_db():
         
         try:
             # 1. Seed isi_scores
-            if os.path.exists("data/processed/isi_scores.csv"):
-                df = pd.read_csv("data/processed/isi_scores.csv")
+            isi_path = os.path.join(PROJECT_ROOT, "data", "processed", "isi_scores.csv")
+            if os.path.exists(isi_path):
+                df = pd.read_csv(isi_path)
                 df = clean_state_names(df)
                 # Match table schema columns
                 cols = ["state", "district", "year_month", "enrol_activity", "demo_activity", 
@@ -106,8 +110,9 @@ def init_db():
                 print("Seeded 'isi_scores' table successfully.")
 
             # 2. Seed lifecycle_clusters
-            if os.path.exists("data/processed/lifecycle_clusters.csv"):
-                df = pd.read_csv("data/processed/lifecycle_clusters.csv")
+            lifecycle_path = os.path.join(PROJECT_ROOT, "data", "processed", "lifecycle_clusters.csv")
+            if os.path.exists(lifecycle_path):
+                df = pd.read_csv(lifecycle_path)
                 df = clean_state_names(df)
                 cols = ["state", "district", "year_month", "enrol_activity", "demo_activity", 
                         "bio_activity", "enrol_norm", "demo_norm", "bio_norm", "isi_score", "lifecycle_cluster"]
@@ -116,8 +121,9 @@ def init_db():
                 print("Seeded 'lifecycle_clusters' table successfully.")
 
             # 3. Seed aews_risk_signals
-            if os.path.exists("outputs/predictions/aews_risk_signals.csv"):
-                df = pd.read_csv("outputs/predictions/aews_risk_signals.csv")
+            risk_path = os.path.join(PROJECT_ROOT, "outputs", "predictions", "aews_risk_signals.csv")
+            if os.path.exists(risk_path):
+                df = pd.read_csv(risk_path)
                 df = clean_state_names(df)
                 cols = ["state", "district", "year_month", "predicted_risk_next"]
                 df = df[[c for c in cols if c in df.columns]]

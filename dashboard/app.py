@@ -58,6 +58,10 @@ st.caption(
 # =========================================================
 alerts_df, latest_month = get_latest_alerts()
 
+if alerts_df.empty or "predicted_risk_next" not in alerts_df.columns:
+    st.warning("⚠️ No risk alert data found in the database. Please ensure the database is seeded and the ingestion script has been run.")
+    st.stop()
+
 risk_map = {0: "🟢 Low", 1: "🟡 Medium", 2: "🔴 High"}
 alerts_df["Risk Level"] = alerts_df["predicted_risk_next"].map(risk_map)
 
