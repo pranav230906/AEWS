@@ -3,31 +3,10 @@ import pandas as pd
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Float, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 from datetime import datetime
-from dotenv import load_dotenv
-
-# Load environment variables from the .env file
-load_dotenv()
-
-DB_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.abspath(os.path.join(DB_DIR, ".."))
-
-# Get the database URL (check st.secrets first for Streamlit Cloud, fallback to environment/dotenv)
-DATABASE_URL = None
-try:
-    import streamlit as st
-    if "DATABASE_URL" in st.secrets:
-        DATABASE_URL = st.secrets["DATABASE_URL"]
-except Exception:
-    pass
-
-if not DATABASE_URL:
-    DATABASE_URL = os.getenv("DATABASE_URL")
-
-if not DATABASE_URL:
-    raise ValueError("No DATABASE_URL found. Please set it in your .env file or Streamlit Secrets.")
+from dashboard.config import settings
 
 # Create the Engine with connection pooling
-engine = create_engine(DATABASE_URL, pool_size=5, max_overflow=10)
+engine = create_engine(settings.DATABASE_URL, pool_size=5, max_overflow=10)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()
@@ -96,6 +75,9 @@ def init_db():
         print("Database is empty. Seeding from local CSV files...")
         from state_cleaning import clean_state_names
         
+        DB_DIR = os.path.dirname(os.path.abspath(__file__))
+        PROJECT_ROOT = os.path.abspath(os.path.join(DB_DIR, ".."))
+
         try:
             # 1. Seed isi_scores
             isi_path = os.path.join(PROJECT_ROOT, "data", "processed", "isi_scores.csv")
@@ -129,8 +111,8 @@ def init_db():
                 df = df[[c for c in cols if c in df.columns]]
                 df.to_sql("aews_risk_signals", con=engine, if_exists="append", index=False)
                 print("Seeded 'aews_risk_signals' table successfully.")
-        except Exception as e:
-            print(f"Error seeding database: {e}")
+        except Exception:
+            print("Error seeding database: A database operation failure occurred.")
 
 # Save Report Function
 def save_report_to_db(state: str, district: str, risk_level: str, file_path: str):
@@ -144,9 +126,9 @@ def save_report_to_db(state: str, district: str, risk_level: str, file_path: str
         )
         db.add(new_report)
         db.commit()
-    except Exception as e:
+    except Exception:
         db.rollback()
-        print(f"Error saving report to PostgreSQL: {e}")
+        print("Error saving report to PostgreSQL: A database transaction failure occurred.")
     finally:
         db.close() # Returns connection to the pool
 
