@@ -192,8 +192,7 @@ The Streamlit dashboard (`dashboard/app.py`) provides:
 - ISI trend analysis
 - Automated PDF report export
 
-**Launch**: `streamlit run dashboard/app.py`
-**Live Link**: `https://unisquad-aews.streamlit.app/`
+**Launch**: `streamlit run dashboard/app.py`  [**View Live Dashboard ↗**](https://unisquad-aews.streamlit.app/)
 
 ## Data Specifications
 
