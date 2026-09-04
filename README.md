@@ -193,6 +193,7 @@ The Streamlit dashboard (`dashboard/app.py`) provides:
 - Automated PDF report export
 
 **Launch**: `streamlit run dashboard/app.py`
+**Live Link**: `https://unisquad-aews.streamlit.app/`
 
 ## Data Specifications
 
